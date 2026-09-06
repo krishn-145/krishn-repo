@@ -1,0 +1,61 @@
+name: Build and Deploy KRISHN APT Repository
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Build APT repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y dpkg-dev gzip
+          rm -rf public
+          mkdir -p public/dists/stable/main/binary-all public/pool/main
+          shopt -s nullglob
+          debs=(debs/*.deb)
+          if [ ${#debs[@]} -eq 0 ]; then echo "ERROR: no .deb files in debs/"; exit 1; fi
+          cp "${debs[@]}" public/pool/main/
+          cd public
+          dpkg-scanpackages --arch all pool/main /dev/null > dists/stable/main/binary-all/Packages
+          gzip -9 -c dists/stable/main/binary-all/Packages > dists/stable/main/binary-all/Packages.gz
+          cat > dists/stable/Release <<'REL'
+          Origin: KRISHN
+          Label: KRISHN Termux Repository
+          Suite: stable
+          Codename: stable
+          Architectures: all
+          Components: main
+          Description: KRISHN Termux APT Repository
+          REL
+          cp ../install.sh install.sh
+          cp ../index.html index.html
+          touch .nojekyll
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
